@@ -1,0 +1,27 @@
+﻿<#
+.SYNOPSIS
+  卸载 PaperWaatchdog 自启动任务，并尝试结束正在运行的 waatchdog 进程。
+#>
+
+$ErrorActionPreference = 'SilentlyContinue'
+$TaskName = 'PaperWaatchdog'
+
+if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
+    Stop-ScheduledTask  -TaskName $TaskName
+    Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+    Write-Host "✅ 已移除任务：$TaskName"
+} else {
+    Write-Host "未发现任务：$TaskName"
+}
+
+# 尝试结束占用 8000 端口的 python 进程
+$conns = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue
+foreach ($c in $conns) {
+    try {
+        $p = Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue
+        if ($p -and ($p.ProcessName -match 'python')) {
+            Stop-Process -Id $p.Id -Force
+            Write-Host "🛑 已结束进程 $($p.ProcessName) (PID=$($p.Id))"
+        }
+    } catch {}
+}

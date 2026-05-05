@@ -1,0 +1,862 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>📊 Papers Stats — Visualization Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+<style>
+:root {
+    --bg: #f5f7fb;
+    --card: #ffffff;
+    --border: #e2e8f0;
+    --text: #1f2937;
+    --muted: #6b7280;
+    --primary: #4f46e5;
+    --success: #059669;
+    --danger: #dc2626;
+    --warn: #d97706;
+    --info: #0284c7;
+}
+* { box-sizing: border-box; }
+body {
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: var(--bg); color: var(--text);
+    margin: 0; padding: 24px;
+}
+header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 20px; flex-wrap: wrap; gap: 12px;
+}
+h1 { margin: 0; font-size: 1.6em; }
+.back-btn {
+    background: var(--card); border: 1px solid var(--border); padding: 8px 14px;
+    border-radius: 8px; text-decoration: none; color: var(--text); font-size: 0.95em;
+    transition: background .2s;
+}
+.back-btn:hover { background: #eef2ff; border-color: var(--primary); color: var(--primary); }
+
+/* KPI 卡片 */
+.kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px; margin-bottom: 20px;
+}
+.kpi {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+.kpi .label { color: var(--muted); font-size: 0.85em; margin-bottom: 6px; }
+.kpi .value { font-size: 1.7em; font-weight: 700; }
+.kpi .sub { color: var(--muted); font-size: 0.78em; margin-top: 2px; }
+.kpi.primary .value { color: var(--primary); }
+.kpi.success .value { color: var(--success); }
+.kpi.danger .value { color: var(--danger); }
+.kpi.warn .value { color: var(--warn); }
+.kpi.info .value { color: var(--info); }
+
+/* 图表网格 */
+.chart-grid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 16px;
+}
+.card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    display: flex; flex-direction: column;
+}
+.card h3 {
+    margin: 0 0 4px; font-size: 1em; color: var(--text);
+    display: flex; align-items: center; gap: 6px;
+}
+.card .subtitle { color: var(--muted); font-size: 0.8em; margin-bottom: 10px; }
+.card .canvas-wrap { position: relative; flex: 1; min-height: 240px; }
+.card.span-12 { grid-column: span 12; }
+.card.span-8 { grid-column: span 8; }
+.card.span-6 { grid-column: span 6; }
+.card.span-4 { grid-column: span 4; }
+.card.span-3 { grid-column: span 3; }
+@media (max-width: 1100px) {
+    .card.span-3, .card.span-4 { grid-column: span 6; }
+    .card.span-8 { grid-column: span 12; }
+}
+@media (max-width: 700px) {
+    .card.span-6, .card.span-3, .card.span-4 { grid-column: span 12; }
+}
+
+/* 热力图 */
+.heatmap {
+    display: grid;
+    grid-template-columns: 50px repeat(24, 1fr);
+    gap: 2px; font-size: 0.7em;
+}
+.heatmap .hcell {
+    background: #eef2ff; border-radius: 3px; aspect-ratio: 1; min-width: 12px;
+    cursor: default;
+}
+.heatmap .hlabel { color: var(--muted); display: flex; align-items: center; justify-content: center; }
+.heatmap .haxis { color: var(--muted); font-size: 0.65em; text-align: center; }
+
+/* 最近列表 */
+.recent-list { list-style: none; padding: 0; margin: 0; flex: 1; overflow: auto; max-height: 360px; }
+.recent-list li {
+    padding: 8px 6px; border-bottom: 1px solid #f1f5f9;
+    display: flex; justify-content: space-between; gap: 10px;
+}
+.recent-list li:last-child { border-bottom: none; }
+.recent-list .ttl { flex: 1; font-size: 0.9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent-list .meta { color: var(--muted); font-size: 0.78em; white-space: nowrap; }
+.tag-pill {
+    display: inline-block; background: #eef2ff; color: var(--primary);
+    padding: 1px 6px; border-radius: 999px; font-size: 0.75em; margin-right: 4px;
+}
+
+#status { color: var(--muted); margin: 16px 0; font-size: 0.9em; }
+.empty { text-align: center; color: var(--muted); padding: 40px 0; }
+</style>
+</head>
+<body>
+<header>
+    <h1>📊 Papers 可视化统计</h1>
+    <a class="back-btn" href="index.html">← 返回主页</a>
+</header>
+
+<p id="status">正在加载 metadata.json ...</p>
+
+<!-- KPI -->
+<div id="kpi" class="kpi-grid"></div>
+
+<!-- Charts -->
+<div class="chart-grid">
+    <div class="card span-8">
+        <h3>📈 累计增长曲线</h3>
+        <div class="subtitle">论文总数随时间累积变化（按加入时间）</div>
+        <div class="canvas-wrap"><canvas id="chartCumulative"></canvas></div>
+    </div>
+    <div class="card span-4">
+        <h3>✅ 已读 vs 未读</h3>
+        <div class="subtitle">阅读进度概览</div>
+        <div class="canvas-wrap"><canvas id="chartRead"></canvas></div>
+    </div>
+
+    <div class="card span-8">
+        <h3>📅 月度新增量</h3>
+        <div class="subtitle">最近 18 个月每月加入的论文数</div>
+        <div class="canvas-wrap"><canvas id="chartMonthly"></canvas></div>
+    </div>
+    <div class="card span-4">
+        <h3>🏷️ 标签分布</h3>
+        <div class="subtitle">每个标签下的论文数量</div>
+        <div class="canvas-wrap"><canvas id="chartTags"></canvas></div>
+    </div>
+
+    <div class="card span-6">
+        <h3>📆 周新增量</h3>
+        <div class="subtitle">最近 12 周加入的论文数</div>
+        <div class="canvas-wrap"><canvas id="chartWeekly"></canvas></div>
+    </div>
+    <div class="card span-6">
+        <h3>📚 论文发表年份分布</h3>
+        <div class="subtitle">按论文本身的发表年份统计</div>
+        <div class="canvas-wrap"><canvas id="chartYears"></canvas></div>
+    </div>
+
+    <div class="card span-6">
+        <h3>🏛️ 会议/期刊 Top 15</h3>
+        <div class="subtitle">收录最多的会议/期刊排名</div>
+        <div class="canvas-wrap"><canvas id="chartVenues"></canvas></div>
+    </div>
+    <div class="card span-6">
+        <h3>📖 各标签阅读进度</h3>
+        <div class="subtitle">每个标签下的已读 / 未读对比</div>
+        <div class="canvas-wrap"><canvas id="chartTagProgress"></canvas></div>
+    </div>
+
+    <div class="card span-12">
+        <h3>🔥 加入热力图</h3>
+        <div class="subtitle">星期 × 小时 — 你倾向在什么时间段整理论文</div>
+        <div id="heatmap" style="overflow-x:auto"></div>
+    </div>
+
+    <div class="card span-6">
+        <h3>📂 近期新增 Top 15</h3>
+        <div class="subtitle">最近加入的论文（按 added_at 倒序）</div>
+        <ul id="recentList" class="recent-list"></ul>
+    </div>
+    <div class="card span-6">
+        <h3>🕒 阅读速度参考</h3>
+        <div class="subtitle">各时段的累计阅读 / 未读对比</div>
+        <div class="canvas-wrap"><canvas id="chartReadingPace"></canvas></div>
+    </div>
+
+    <div class="card span-12">
+        <h3>🌌 论文知识宇宙</h3>
+        <div class="subtitle">每个"行星"是一篇论文，"恒星"是一个标签/领域；论文与其所属标签以引力连接，拖拽 / 滚轮可交互，点击论文节点可打开 PDF</div>
+        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">
+            <label style="font-size:0.85em; color:var(--muted);">恒星类型：
+                <select id="galaxyGroupBy" style="padding:3px 6px; border:1px solid var(--border); border-radius:6px; background:#fff;">
+                    <option value="tag" selected>标签</option>
+                    <option value="venue">会议/期刊</option>
+                    <option value="year">发表年份</option>
+                </select>
+            </label>
+            <label style="font-size:0.85em; color:var(--muted);"><input type="checkbox" id="galaxyReadOnly"> 仅显示已读</label>
+            <label style="font-size:0.85em; color:var(--muted);"><input type="checkbox" id="galaxyHidePapers"> 隐藏论文节点（仅看领域关系）</label>
+            <button id="galaxyFit" style="padding:3px 8px; border:1px solid var(--border); border-radius:6px; background:#fff; cursor:pointer;">重置视图</button>
+            <span id="galaxyHint" style="font-size:0.8em; color:var(--muted); margin-left:auto;"></span>
+        </div>
+        <div id="galaxyContainer" style="width:100%; height:600px; border-radius:12px; background:radial-gradient(ellipse at center, #0b1026 0%, #050714 70%, #000 100%); border:1px solid #1a1f3a; overflow:hidden; position:relative;"></div>
+        <div id="galaxyTip" style="display:none; position:fixed; pointer-events:none; background:rgba(15,17,40,0.95); color:#e6e9ff; padding:8px 10px; border-radius:8px; font-size:12px; max-width:320px; box-shadow:0 4px 16px rgba(0,0,0,0.4); border:1px solid #2a3050; z-index:9999;"></div>
+    </div>
+
+    <div class="card span-12">
+        <h3>🌐 标签 × 年份 矩阵</h3>
+        <div class="subtitle">每个标签在各年份的论文数（热力风格表格）</div>
+        <div id="matrix" style="overflow-x:auto"></div>
+    </div>
+</div>
+
+<script>
+const PALETTE = [
+    '#4f46e5','#059669','#dc2626','#d97706','#0284c7','#7c3aed','#db2777',
+    '#0891b2','#65a30d','#ea580c','#9333ea','#be185d','#0d9488','#a16207',
+    '#1d4ed8','#15803d','#b91c1c','#92400e','#0369a1','#6d28d9'
+];
+const statusEl = document.getElementById('status');
+
+async function loadMetadata() {
+    try {
+        const resp = await fetch(`metadata.json?ts=${Date.now()}`, { cache: 'no-store' });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        return await resp.json();
+    } catch (err) {
+        statusEl.textContent = '❌ 无法加载 metadata.json：' + err.message + '。请通过 waatchdog.py 启动本地服务后再访问。';
+        statusEl.style.color = '#dc2626';
+        return null;
+    }
+}
+
+function fmt(n) { return new Intl.NumberFormat().format(n); }
+function parseTs(s) {
+    if (!s) return null;
+    const t = Date.parse(s);
+    return Number.isFinite(t) ? t : null;
+}
+function ymKey(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
+
+(async function main() {
+    const data = await loadMetadata();
+    if (!data) return;
+    const papers = Object.values(data);
+    if (!papers.length) {
+        statusEl.textContent = '当前 metadata.json 中尚未有任何论文。';
+        return;
+    }
+    statusEl.textContent = `✅ 已加载 ${papers.length} 篇论文`;
+    statusEl.style.color = 'var(--muted)';
+
+    renderKpi(papers);
+    renderCumulative(papers);
+    renderMonthly(papers);
+    renderWeekly(papers);
+    renderRead(papers);
+    renderTags(papers);
+    renderYears(papers);
+    renderVenues(papers);
+    renderTagProgress(papers);
+    renderHeatmap(papers);
+    renderRecent(papers);
+    renderReadingPace(papers);
+    renderMatrix(papers);
+    renderGalaxy(papers);
+})();
+
+// ========= KPI =========
+function renderKpi(papers) {
+    const kpi = document.getElementById('kpi');
+    const total = papers.length;
+    const read = papers.filter(p => p.read).length;
+    const unread = total - read;
+    const readRate = total ? (read / total * 100).toFixed(1) : 0;
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    const weekStart = (() => { const d = new Date(); d.setDate(d.getDate() - 7); return d.getTime(); })();
+    const newMonth = papers.filter(p => { const t = parseTs(p.added_at); return t && t >= monthStart; }).length;
+    const newWeek = papers.filter(p => { const t = parseTs(p.added_at); return t && t >= weekStart; }).length;
+    const venues = new Set(papers.map(p => (p.venue || '').trim()).filter(Boolean));
+    const tags = new Set(papers.flatMap(p => p.tags || []).filter(Boolean));
+    const yearsSet = new Set(papers.map(p => p.year).filter(Boolean));
+    // 平均每月新增
+    const tsList = papers.map(p => parseTs(p.added_at)).filter(Boolean).sort((a,b)=>a-b);
+    let avgPerMonth = '—';
+    if (tsList.length >= 2) {
+        const months = Math.max(1, (tsList[tsList.length-1] - tsList[0]) / (1000*60*60*24*30.44));
+        avgPerMonth = (tsList.length / months).toFixed(1);
+    }
+
+    const items = [
+        { label: '📚 论文总数', value: fmt(total), cls: 'primary' },
+        { label: '✅ 已读', value: fmt(read), sub: `${readRate}% 完成`, cls: 'success' },
+        { label: '📖 未读', value: fmt(unread), cls: 'danger' },
+        { label: '🆕 本月新增', value: fmt(newMonth), cls: 'info' },
+        { label: '⚡ 本周新增', value: fmt(newWeek), cls: 'warn' },
+        { label: '🏛️ 会议/期刊', value: fmt(venues.size), cls: '' },
+        { label: '🏷️ 标签数', value: fmt(tags.size), cls: '' },
+        { label: '📅 涉及年份', value: fmt(yearsSet.size), cls: '' },
+        { label: '📊 平均月新增', value: avgPerMonth, cls: 'primary' },
+    ];
+    kpi.innerHTML = items.map(it => `
+        <div class="kpi ${it.cls}">
+            <div class="label">${it.label}</div>
+            <div class="value">${it.value}</div>
+            ${it.sub ? `<div class="sub">${it.sub}</div>` : ''}
+        </div>
+    `).join('');
+}
+
+// ========= 累计增长 =========
+function renderCumulative(papers) {
+    const tsList = papers.map(p => parseTs(p.added_at)).filter(Boolean).sort((a,b)=>a-b);
+    if (!tsList.length) return;
+    const points = tsList.map((t, i) => ({ x: t, y: i + 1 }));
+    new Chart(document.getElementById('chartCumulative'), {
+        type: 'line',
+        data: { datasets: [{
+            label: '累计论文数', data: points,
+            borderColor: PALETTE[0], backgroundColor: PALETTE[0] + '22',
+            fill: true, tension: 0.25, pointRadius: 0, borderWidth: 2,
+        }]},
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            scales: {
+                x: { type: 'time', time: { unit: 'month' }, ticks: { color: '#6b7280' } },
+                y: { beginAtZero: true, ticks: { precision: 0, color: '#6b7280' } }
+            },
+            plugins: { legend: { display: false } }
+        }
+    });
+}
+
+// ========= 月度新增 =========
+function renderMonthly(papers) {
+    const counts = {};
+    papers.forEach(p => {
+        const t = parseTs(p.added_at);
+        if (!t) return;
+        const k = ymKey(new Date(t));
+        counts[k] = (counts[k] || 0) + 1;
+    });
+    const keys = Object.keys(counts).sort();
+    const recent = keys.slice(-18);
+    new Chart(document.getElementById('chartMonthly'), {
+        type: 'bar',
+        data: {
+            labels: recent,
+            datasets: [{
+                label: '新增数',
+                data: recent.map(k => counts[k]),
+                backgroundColor: PALETTE[0],
+                borderRadius: 4,
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { ticks: { color: '#6b7280' }, grid: { display: false } },
+                y: { beginAtZero: true, ticks: { precision: 0, color: '#6b7280' } }
+            }
+        }
+    });
+}
+
+// ========= 周度新增 =========
+function renderWeekly(papers) {
+    const week = (date) => {
+        const d = new Date(date);
+        d.setHours(0,0,0,0);
+        d.setDate(d.getDate() - d.getDay()); // Sunday-based week start
+        return d.getTime();
+    };
+    const counts = {};
+    papers.forEach(p => {
+        const t = parseTs(p.added_at);
+        if (!t) return;
+        const k = week(t);
+        counts[k] = (counts[k] || 0) + 1;
+    });
+    const keys = Object.keys(counts).map(Number).sort((a,b)=>a-b);
+    const recent = keys.slice(-12);
+    const labels = recent.map(t => {
+        const d = new Date(t);
+        return `${d.getMonth()+1}/${d.getDate()}`;
+    });
+    new Chart(document.getElementById('chartWeekly'), {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [{
+                label: '周新增', data: recent.map(k => counts[k]),
+                borderColor: PALETTE[3], backgroundColor: PALETTE[3] + '33',
+                fill: true, tension: 0.3, pointRadius: 4, pointBackgroundColor: PALETTE[3]
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+        }
+    });
+}
+
+// ========= 已读/未读 =========
+function renderRead(papers) {
+    const read = papers.filter(p => p.read).length;
+    const unread = papers.length - read;
+    new Chart(document.getElementById('chartRead'), {
+        type: 'doughnut',
+        data: {
+            labels: ['已读', '未读'],
+            datasets: [{ data: [read, unread], backgroundColor: [PALETTE[1], '#e5e7eb'], borderWidth: 0 }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false, cutout: '65%',
+            plugins: { legend: { position: 'bottom' } }
+        }
+    });
+}
+
+// ========= 标签分布 =========
+function renderTags(papers) {
+    const counts = {};
+    papers.forEach(p => (p.tags || []).forEach(t => {
+        if (!t) return; counts[t] = (counts[t] || 0) + 1;
+    }));
+    const entries = Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+    new Chart(document.getElementById('chartTags'), {
+        type: 'doughnut',
+        data: {
+            labels: entries.map(e => e[0]),
+            datasets: [{ data: entries.map(e => e[1]), backgroundColor: entries.map((_,i) => PALETTE[i % PALETTE.length]), borderWidth: 0 }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false, cutout: '55%',
+            plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } }
+        }
+    });
+}
+
+// ========= 年份分布 =========
+function renderYears(papers) {
+    const counts = {};
+    papers.forEach(p => {
+        const y = parseInt(p.year, 10);
+        if (!Number.isFinite(y)) return;
+        counts[y] = (counts[y] || 0) + 1;
+    });
+    const years = Object.keys(counts).map(Number).sort((a,b)=>a-b);
+    new Chart(document.getElementById('chartYears'), {
+        type: 'bar',
+        data: {
+            labels: years,
+            datasets: [{ label: '论文数', data: years.map(y=>counts[y]), backgroundColor: PALETTE[4], borderRadius: 4 }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { ticks: { color: '#6b7280' }, grid: { display: false } },
+                y: { beginAtZero: true, ticks: { precision: 0 } }
+            }
+        }
+    });
+}
+
+// ========= 会议 Top N =========
+function renderVenues(papers) {
+    const counts = {};
+    papers.forEach(p => {
+        const v = (p.venue || '').trim();
+        if (!v) return;
+        counts[v] = (counts[v] || 0) + 1;
+    });
+    const top = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0, 15);
+    new Chart(document.getElementById('chartVenues'), {
+        type: 'bar',
+        data: {
+            labels: top.map(e=>e[0]),
+            datasets: [{ data: top.map(e=>e[1]), backgroundColor: top.map((_,i)=>PALETTE[i % PALETTE.length]), borderRadius: 4 }]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
+        }
+    });
+}
+
+// ========= 各标签阅读进度 =========
+function renderTagProgress(papers) {
+    const map = {};
+    papers.forEach(p => {
+        (p.tags || []).forEach(tag => {
+            if (!tag) return;
+            if (!map[tag]) map[tag] = { read: 0, unread: 0 };
+            if (p.read) map[tag].read++; else map[tag].unread++;
+        });
+    });
+    const entries = Object.entries(map).sort((a,b)=>(b[1].read+b[1].unread)-(a[1].read+a[1].unread)).slice(0, 12);
+    new Chart(document.getElementById('chartTagProgress'), {
+        type: 'bar',
+        data: {
+            labels: entries.map(e=>e[0]),
+            datasets: [
+                { label: '已读', data: entries.map(e=>e[1].read), backgroundColor: PALETTE[1] },
+                { label: '未读', data: entries.map(e=>e[1].unread), backgroundColor: '#e5e7eb' }
+            ]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { position: 'bottom' } },
+            scales: { x: { stacked: true, beginAtZero: true, ticks: { precision: 0 } }, y: { stacked: true } }
+        }
+    });
+}
+
+// ========= 加入热力图（星期 x 小时） =========
+function renderHeatmap(papers) {
+    const grid = Array.from({length: 7}, () => Array(24).fill(0));
+    papers.forEach(p => {
+        const t = parseTs(p.added_at);
+        if (!t) return;
+        const d = new Date(t);
+        grid[d.getDay()][d.getHours()]++;
+    });
+    let max = 0;
+    grid.forEach(row => row.forEach(v => { if (v > max) max = v; }));
+    const dayNames = ['日','一','二','三','四','五','六'];
+    const container = document.getElementById('heatmap');
+
+    let html = '<div class="heatmap">';
+    // header row
+    html += '<div></div>';
+    for (let h = 0; h < 24; h++) html += `<div class="haxis">${h}</div>`;
+    // body
+    for (let d = 0; d < 7; d++) {
+        html += `<div class="hlabel">周${dayNames[d]}</div>`;
+        for (let h = 0; h < 24; h++) {
+            const v = grid[d][h];
+            const ratio = max ? v / max : 0;
+            const bg = v === 0 ? '#f1f5f9' : `rgba(79, 70, 229, ${0.15 + ratio * 0.85})`;
+            html += `<div class="hcell" style="background:${bg}" title="周${dayNames[d]} ${h}:00 — ${v} 篇"></div>`;
+        }
+    }
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+// ========= 最近新增 =========
+function renderRecent(papers) {
+    const list = papers
+        .filter(p => p.added_at)
+        .sort((a,b)=>Date.parse(b.added_at)-Date.parse(a.added_at))
+        .slice(0, 15);
+    const ul = document.getElementById('recentList');
+    if (!list.length) { ul.innerHTML = '<li class="empty">暂无加入时间数据</li>'; return; }
+    ul.innerHTML = list.map(p => {
+        const d = new Date(p.added_at);
+        const dateStr = `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}`;
+        const tagStr = (p.tags || []).slice(0,2).map(t=>`<span class="tag-pill">${t}</span>`).join('');
+        return `
+        <li>
+            <span class="ttl" title="${(p.title||'').replace(/"/g,'&quot;')}">${tagStr}${p.title || '(无标题)'}</span>
+            <span class="meta">${dateStr}</span>
+        </li>`;
+    }).join('');
+}
+
+// ========= 阅读速度参考（按月已读累计 vs 加入累计） =========
+function renderReadingPace(papers) {
+    const buckets = {};
+    papers.forEach(p => {
+        const t = parseTs(p.added_at);
+        if (!t) return;
+        const k = ymKey(new Date(t));
+        if (!buckets[k]) buckets[k] = { added: 0, read: 0 };
+        buckets[k].added++;
+        if (p.read) buckets[k].read++;
+    });
+    const keys = Object.keys(buckets).sort();
+    let cumAdded = 0, cumRead = 0;
+    const cumA = [], cumR = [];
+    keys.forEach(k => {
+        cumAdded += buckets[k].added;
+        cumRead += buckets[k].read;
+        cumA.push(cumAdded); cumR.push(cumRead);
+    });
+    new Chart(document.getElementById('chartReadingPace'), {
+        type: 'line',
+        data: {
+            labels: keys,
+            datasets: [
+                { label: '累计加入', data: cumA, borderColor: PALETTE[0], backgroundColor: PALETTE[0]+'22', fill: true, tension: 0.25, pointRadius: 0, borderWidth: 2 },
+                { label: '累计已读', data: cumR, borderColor: PALETTE[1], backgroundColor: PALETTE[1]+'22', fill: true, tension: 0.25, pointRadius: 0, borderWidth: 2 }
+            ]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { position: 'bottom' } },
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+        }
+    });
+}
+
+// ========= 标签 × 年份矩阵 =========
+function renderMatrix(papers) {
+    const tagSet = new Set(), yearSet = new Set();
+    const grid = {}; // grid[tag][year]
+    papers.forEach(p => {
+        const y = parseInt(p.year, 10);
+        if (!Number.isFinite(y)) return;
+        yearSet.add(y);
+        const tags = (p.tags && p.tags.length) ? p.tags : ['未分组'];
+        tags.forEach(t => {
+            tagSet.add(t);
+            if (!grid[t]) grid[t] = {};
+            grid[t][y] = (grid[t][y] || 0) + 1;
+        });
+    });
+    const tags = [...tagSet].sort((a,b)=>a.localeCompare(b,'zh'));
+    const years = [...yearSet].sort((a,b)=>a-b);
+    if (!tags.length || !years.length) {
+        document.getElementById('matrix').innerHTML = '<div class="empty">缺少 tags 或 year 数据</div>';
+        return;
+    }
+    let max = 0;
+    tags.forEach(t => years.forEach(y => { const v = grid[t]?.[y] || 0; if (v > max) max = v; }));
+    let html = '<table style="border-collapse:collapse; font-size:0.82em; width:100%">';
+    html += '<thead><tr><th style="text-align:left; padding:6px 8px; color:#6b7280;">标签 \\ 年份</th>';
+    years.forEach(y => html += `<th style="padding:6px 6px; color:#6b7280; font-weight:500;">${y}</th>`);
+    html += '<th style="padding:6px 8px; color:#6b7280;">合计</th></tr></thead><tbody>';
+    tags.forEach(t => {
+        let total = 0;
+        let row = `<tr><td style="padding:6px 8px; font-weight:600; white-space:nowrap;">${t}</td>`;
+        years.forEach(y => {
+            const v = grid[t]?.[y] || 0;
+            total += v;
+            const ratio = max ? v / max : 0;
+            const bg = v === 0 ? 'transparent' : `rgba(79,70,229,${0.12 + ratio * 0.7})`;
+            const color = ratio > 0.55 ? '#fff' : '#1f2937';
+            row += `<td style="padding:6px; text-align:center; background:${bg}; color:${color}; border-radius:4px;">${v || ''}</td>`;
+        });
+        row += `<td style="padding:6px 8px; font-weight:600; color:#4f46e5;">${total}</td></tr>`;
+        html += row;
+    });
+    html += '</tbody></table>';
+    document.getElementById('matrix').innerHTML = html;
+}
+
+// ========= 论文知识宇宙 (vis-network) =========
+let _galaxyNet = null;
+let _galaxyPapersCache = [];
+function renderGalaxy(papers) {
+    _galaxyPapersCache = papers;
+    const groupSel = document.getElementById('galaxyGroupBy');
+    const readCb = document.getElementById('galaxyReadOnly');
+    const hideCb = document.getElementById('galaxyHidePapers');
+    const fitBtn = document.getElementById('galaxyFit');
+    if (groupSel) groupSel.addEventListener('change', drawGalaxy);
+    if (readCb) readCb.addEventListener('change', drawGalaxy);
+    if (hideCb) hideCb.addEventListener('change', drawGalaxy);
+    if (fitBtn) fitBtn.addEventListener('click', () => _galaxyNet && _galaxyNet.fit({ animation: { duration: 600, easingFunction: 'easeInOutQuad' } }));
+    drawGalaxy();
+}
+
+function _galaxyKeys(p, mode) {
+    if (mode === 'tag') return (p.tags && p.tags.length) ? p.tags : ['未分组'];
+    if (mode === 'venue') return [(p.venue || '').trim() || '(未填会议)'];
+    return [String(p.year || '').trim() || '(未填年份)'];
+}
+
+function drawGalaxy() {
+    const container = document.getElementById('galaxyContainer');
+    const tip = document.getElementById('galaxyTip');
+    const hint = document.getElementById('galaxyHint');
+    if (!container || typeof vis === 'undefined') return;
+
+    const groupBy = (document.getElementById('galaxyGroupBy') || {}).value || 'tag';
+    const readOnly = !!(document.getElementById('galaxyReadOnly') || {}).checked;
+    const hidePapers = !!(document.getElementById('galaxyHidePapers') || {}).checked;
+
+    const papers = (_galaxyPapersCache || []).filter(p => readOnly ? p.read : true);
+
+    const starCounter = new Map();
+    const paperKeys = new Map();
+    papers.forEach(p => {
+        const ks = _galaxyKeys(p, groupBy);
+        paperKeys.set(p.file_key, ks);
+        ks.forEach(k => starCounter.set(k, (starCounter.get(k) || 0) + 1));
+    });
+
+    if (!starCounter.size) {
+        container.innerHTML = '<div style="color:#9aa;text-align:center;padding-top:260px;">没有数据可显示</div>';
+        if (hint) hint.textContent = '';
+        if (_galaxyNet) { _galaxyNet.destroy(); _galaxyNet = null; }
+        return;
+    }
+    container.innerHTML = '';
+
+    const starKeys = [...starCounter.keys()].sort((a, b) => starCounter.get(b) - starCounter.get(a));
+    const colorOf = new Map(starKeys.map((k, i) => [k, PALETTE[i % PALETTE.length]]));
+
+    const nodes = [];
+    const edges = [];
+
+    starKeys.forEach((k) => {
+        const cnt = starCounter.get(k);
+        const size = Math.min(60, 16 + Math.sqrt(cnt) * 6);
+        const color = colorOf.get(k);
+        nodes.push({
+            id: 'S::' + k,
+            label: `${k}\n(${cnt})`,
+            shape: 'dot',
+            size,
+            color: { background: color, border: '#ffffff', highlight: { background: color, border: '#fff' } },
+            font: { color: '#ffffff', size: 14, face: 'system-ui, Microsoft YaHei', strokeWidth: 3, strokeColor: '#000000aa' },
+            borderWidth: 2,
+            shadow: { enabled: true, color: color + 'aa', size: 30, x: 0, y: 0 },
+            _kind: 'star',
+            _key: k,
+            _count: cnt,
+        });
+    });
+
+    if (!hidePapers) {
+        papers.forEach(p => {
+            const ks = paperKeys.get(p.file_key) || [];
+            const primary = ks[0];
+            const color = colorOf.get(primary) || '#cccccc';
+            nodes.push({
+                id: 'P::' + p.file_key,
+                label: '',
+                shape: 'dot',
+                size: p.read ? 7 : 5,
+                color: {
+                    background: p.read ? color : '#1a1f3a',
+                    border: color,
+                    highlight: { background: '#fff', border: color },
+                },
+                borderWidth: p.read ? 1 : 1.5,
+                shadow: { enabled: true, color: color + '99', size: 12, x: 0, y: 0 },
+                _kind: 'paper',
+                _paper: p,
+            });
+            ks.forEach(k => {
+                edges.push({
+                    from: 'P::' + p.file_key,
+                    to: 'S::' + k,
+                    color: { color: colorOf.get(k) + '55', highlight: colorOf.get(k) },
+                    width: 0.5,
+                    smooth: false,
+                });
+            });
+        });
+    } else {
+        const pairCount = new Map();
+        papers.forEach(p => {
+            const ks = paperKeys.get(p.file_key) || [];
+            for (let i = 0; i < ks.length; i++) {
+                for (let j = i + 1; j < ks.length; j++) {
+                    const a = ks[i], b = ks[j];
+                    const key = a < b ? a + '||' + b : b + '||' + a;
+                    pairCount.set(key, (pairCount.get(key) || 0) + 1);
+                }
+            }
+        });
+        pairCount.forEach((cnt, key) => {
+            const [a, b] = key.split('||');
+            edges.push({
+                from: 'S::' + a,
+                to: 'S::' + b,
+                color: { color: '#7c8cff55', highlight: '#fff' },
+                width: Math.min(6, 0.5 + cnt * 0.8),
+                smooth: { type: 'continuous' },
+                label: cnt > 1 ? String(cnt) : '',
+                font: { color: '#aab', size: 10, strokeWidth: 0 },
+            });
+        });
+    }
+
+    const data = { nodes: new vis.DataSet(nodes), edges: new vis.DataSet(edges) };
+    const options = {
+        physics: {
+            enabled: true,
+            solver: 'forceAtlas2Based',
+            forceAtlas2Based: {
+                gravitationalConstant: -60,
+                centralGravity: 0.008,
+                springLength: 110,
+                springConstant: 0.06,
+                damping: 0.5,
+                avoidOverlap: 0.6,
+            },
+            stabilization: { enabled: true, iterations: 250, fit: true },
+        },
+        interaction: { hover: true, tooltipDelay: 9999999, zoomView: true, dragView: true },
+        nodes: { borderWidthSelected: 3 },
+        edges: { selectionWidth: 2 },
+    };
+
+    if (_galaxyNet) _galaxyNet.destroy();
+    _galaxyNet = new vis.Network(container, data, options);
+
+    _galaxyNet.on('hoverNode', params => {
+        const n = data.nodes.get(params.node);
+        if (!n) return;
+        if (n._kind === 'star') {
+            tip.innerHTML = `<div style="font-weight:600;color:#fff;margin-bottom:4px;">${escapeHtmlSafe(n._key)}</div>
+                <div style="color:#9aa;">包含 <b style="color:#fff;">${n._count}</b> 篇论文</div>`;
+        } else {
+            const p = n._paper;
+            const tags = (p.tags || []).join(', ');
+            tip.innerHTML = `<div style="font-weight:600;color:#fff;margin-bottom:4px;">${escapeHtmlSafe(p.title || '(无标题)')}</div>
+                <div style="color:#9aa;font-size:11px;">${escapeHtmlSafe(p.authors || '')}</div>
+                <div style="color:#9aa;margin-top:4px;">${escapeHtmlSafe(p.venue || '')} ${escapeHtmlSafe(p.year || '')}</div>
+                ${tags ? `<div style="color:#9aa;margin-top:2px;">🏷️ ${escapeHtmlSafe(tags)}</div>` : ''}
+                <div style="margin-top:4px;">${p.read ? '✅ 已读' : '📖 未读'}</div>`;
+        }
+        tip.style.display = 'block';
+    });
+    _galaxyNet.on('blurNode', () => { tip.style.display = 'none'; });
+    container.addEventListener('mousemove', e => {
+        if (tip.style.display === 'block') {
+            tip.style.left = (e.clientX + 14) + 'px';
+            tip.style.top = (e.clientY + 14) + 'px';
+        }
+    });
+
+    _galaxyNet.on('click', params => {
+        if (!params.nodes.length) return;
+        const n = data.nodes.get(params.nodes[0]);
+        if (!n || n._kind !== 'paper') return;
+        const p = n._paper;
+        if (p.pdf_local) window.open(p.pdf_local, '_blank');
+    });
+
+    if (hint) {
+        hint.textContent = `恒星 ${starKeys.length} 个 · 行星 ${hidePapers ? 0 : papers.length} 颗 · 拖拽节点 / 滚轮缩放 / 点击行星打开 PDF`;
+    }
+}
+
+function escapeHtmlSafe(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+</script>
+</body>
+</html>

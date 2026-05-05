@@ -1,0 +1,26 @@
+# papers directory - local only
+papers/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+.recycle_bin/
+
+# OS
+.DS_Store
+Thumbs.db
