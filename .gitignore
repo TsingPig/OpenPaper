@@ -1,5 +1,7 @@
-# papers directory - local only
+# papers directory - local only (except demo)
 papers/
+!papers/demo/
+!papers/demo/**
 
 # Python
 __pycache__/
@@ -11,6 +13,10 @@ env/
 venv/
 .venv
 
+# Temp / editor artifacts
+tempCodeRunnerFile.py
+output.txt
+
 # IDE
 .vscode/
 .idea/
@@ -20,6 +26,9 @@ venv/
 # Logs
 *.log
 .recycle_bin/
+
+# AI speed-read cache (local only)
+.speedread_cache/
 
 # OS
 .DS_Store

@@ -3179,7 +3179,103 @@
     "read": false,
     "bib": "",
     "notes": "",
-    "speed_read": null,
+    "speed_read": {
+      "status": "success",
+      "generated_at": "2026-05-05T18:53:17",
+      "updated_at": "2026-05-05T18:53:53",
+      "model": "gpt-4o",
+      "api_base_url": "https://api.vectorengine.cn/v1/chat/completions",
+      "request_mode": "multimodal",
+      "page_count": 53,
+      "candidate_pages": [
+        {
+          "page": 2,
+          "reason": "方法总览图",
+          "image_path": ".speedread_cache/207edd68b499434a/page_002.jpg"
+        },
+        {
+          "page": 4,
+          "reason": "核心方法页",
+          "image_path": ".speedread_cache/207edd68b499434a/page_004.jpg"
+        },
+        {
+          "page": 8,
+          "reason": "实验结果页",
+          "image_path": ".speedread_cache/207edd68b499434a/page_008.jpg"
+        },
+        {
+          "page": 45,
+          "reason": "分析/消融页",
+          "image_path": ".speedread_cache/207edd68b499434a/page_045.jpg"
+        }
+      ],
+      "content": {
+        "one_sentence": "ProcTHOR框架通过程序化生成交互性强且多样化的虚拟环境，显著提升了Embodied AI任务的训练规模和性能。",
+        "quick_takeaways": [
+          "ProcTHOR能够生成任意规模的交互式虚拟环境，支持多种任务。",
+          "实验表明，使用ProcTHOR预训练的模型在多个基准任务中实现了零样本和微调的领先性能。"
+        ],
+        "problem_and_motivation": "现有的Embodied AI环境规模有限，导致模型容易过拟合且难以泛化。ProcTHOR旨在通过程序化生成大规模、多样化、交互性强的环境解决这一问题。",
+        "method_overview": "ProcTHOR通过多阶段条件采样生成房屋布局、结构、灯光、门窗及物品摆放，确保场景的物理合理性和多样性。",
+        "method_steps": [
+          "根据房间规格生成房屋布局。",
+          "创建外部墙结构并采样灯光和门窗。",
+          "从资产库中采样大件和小件物品，并分配颜色和材质。",
+          "确定物品的合理摆放位置，生成最终场景。"
+        ],
+        "core_figures": [
+          {
+            "page": 2,
+            "title": "方法总览图",
+            "what_to_look": "观察图中房屋生成流程的各阶段及其对应的功能。",
+            "what_it_proves": "展示了ProcTHOR如何通过程序化生成多样化的房屋场景。",
+            "why_important": "帮助理解框架的整体工作流程及其生成能力。",
+            "image_path": ".speedread_cache/207edd68b499434a/page_002.jpg",
+            "reason": "方法总览图"
+          },
+          {
+            "page": 4,
+            "title": "房屋生成的详细步骤",
+            "what_to_look": "关注图中房屋生成的具体步骤及其多样性特点。",
+            "what_it_proves": "证明了框架在房屋布局和资产多样性方面的能力。",
+            "why_important": "展示了框架如何实现多样化和交互性场景的生成。",
+            "image_path": ".speedread_cache/207edd68b499434a/page_004.jpg",
+            "reason": "核心方法页"
+          },
+          {
+            "page": 8,
+            "title": "实验结果表",
+            "what_to_look": "查看表中不同硬件配置下的渲染速度和任务性能。",
+            "what_it_proves": "验证了框架的高效性及其对大规模训练的支持。",
+            "why_important": "说明了框架的性能优势及其对Embodied AI任务的实际影响。",
+            "image_path": ".speedread_cache/207edd68b499434a/page_008.jpg",
+            "reason": "实验结果页"
+          },
+          {
+            "page": 45,
+            "title": "ARCHITECTHOR的分析与比较",
+            "what_to_look": "比较ARCHITECTHOR与其他环境的可导航区域大小。",
+            "what_it_proves": "强调了ARCHITECTHOR作为测试环境的高质量和多样性。",
+            "why_important": "展示了框架生成的测试环境在研究中的潜力。",
+            "image_path": ".speedread_cache/207edd68b499434a/page_045.jpg",
+            "reason": "分析/消融页"
+          }
+        ],
+        "experiment_read": "实验结果表明，使用ProcTHOR预训练的模型在多个基准任务中实现了零样本和微调的领先性能，且随着训练房屋数量的增加，模型性能显著提升。",
+        "contributions": [
+          "提出了一个可程序化生成大规模交互式环境的框架。",
+          "通过实验验证了大规模数据对Embodied AI任务性能的提升。"
+        ],
+        "limitations": [
+          "论文中未明确说明生成的环境是否适用于所有类型的Embodied AI任务。",
+          "对生成环境的物理真实性和复杂性可能仍有进一步优化空间。"
+        ],
+        "deep_read_suggestions": [
+          "建议精读第4页，详细了解房屋生成的具体步骤及其多样性特点。",
+          "建议精读第8页，深入分析实验结果及其对框架性能的支持。"
+        ]
+      }
+    },
     "added_at": "2026-03-22T22:21:26"
   },
   "embodied ai/nips23_describe_explain_plan_and_select_interactive_planning_with_large_language_models_enables_open-world_multi-task_agents.pdf": {
@@ -3506,5 +3602,22 @@
       }
     },
     "added_at": "2026-05-05T11:22:08"
+  },
+  "demo/nips20_retrieval-augmented_generation_for_knowledge-intensive_nlp_tasks.pdf": {
+    "file_key": "demo/nips20_retrieval-augmented_generation_for_knowledge-intensive_nlp_tasks.pdf",
+    "title": "nips20_Retrieval-Augmented_Generation_for_Knowledge-Intensive_NLP_Tasks",
+    "authors": "Unknown",
+    "year": "2020",
+    "venue": "NeurIPS",
+    "tags": [
+      "demo"
+    ],
+    "pdf": "papers/demo/nips20_Retrieval-Augmented_Generation_for_Knowledge-Intensive_NLP_Tasks.pdf",
+    "pdf_local": "papers/demo/nips20_Retrieval-Augmented_Generation_for_Knowledge-Intensive_NLP_Tasks.pdf",
+    "read": false,
+    "bib": "",
+    "notes": "",
+    "speed_read": null,
+    "added_at": "2026-05-05T19:01:53"
   }
 }
