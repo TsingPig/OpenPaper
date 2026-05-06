@@ -28,6 +28,12 @@ else:
 PDF_DIR = os.path.join(WORKSPACE_ROOT, "papers")
 BUILD_SCRIPT = os.path.join(WORKSPACE_ROOT, "build.py")
 METADATA_FILE = os.path.join(WORKSPACE_ROOT, "metadata.json")
+METADATA_DEMO_FILE = os.path.join(WORKSPACE_ROOT, "metadata.demo.json")
+
+# 首次运行：若 metadata.json 不存在，从 metadata.demo.json 复制初始化
+if not os.path.exists(METADATA_FILE) and os.path.exists(METADATA_DEMO_FILE):
+    shutil.copy2(METADATA_DEMO_FILE, METADATA_FILE)
+
 RECYCLE_DIR = os.path.join(WORKSPACE_ROOT, ".recycle_bin")
 SPEEDREAD_CACHE_DIR = os.path.join(WORKSPACE_ROOT, ".speedread_cache")
 LOG_FILE = os.path.join(WORKSPACE_ROOT, "waatchdog.log")

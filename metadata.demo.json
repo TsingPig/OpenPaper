@@ -1,0 +1,19 @@
+{
+  "demo/nips20_retrieval-augmented_generation_for_knowledge-intensive_nlp_tasks.pdf": {
+    "file_key": "demo/nips20_retrieval-augmented_generation_for_knowledge-intensive_nlp_tasks.pdf",
+    "title": "nips20_Retrieval-Augmented_Generation_for_Knowledge-Intensive_NLP_Tasks",
+    "authors": "Unknown",
+    "year": "2020",
+    "venue": "NeurIPS",
+    "tags": [
+      "demo"
+    ],
+    "pdf": "papers/demo/nips20_Retrieval-Augmented_Generation_for_Knowledge-Intensive_NLP_Tasks.pdf",
+    "pdf_local": "papers/demo/nips20_Retrieval-Augmented_Generation_for_Knowledge-Intensive_NLP_Tasks.pdf",
+    "read": false,
+    "bib": "",
+    "notes": "",
+    "speed_read": null,
+    "added_at": "2026-05-05T19:01:53"
+  }
+}

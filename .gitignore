@@ -3,6 +3,9 @@ papers/
 !papers/demo/
 !papers/demo/**
 
+# metadata is user-local data; metadata.demo.json is the tracked template
+metadata.json
+
 # Python
 __pycache__/
 *.py[cod]
