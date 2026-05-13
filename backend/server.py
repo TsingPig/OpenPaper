@@ -1226,6 +1226,32 @@ class PaperRequestHandler(SimpleHTTPRequestHandler):
             elif sys.platform == "darwin":
                 subprocess.Popen(["open", "-R", abs_path] if os.path.isfile(abs_path) else ["open", abs_path])
             else:
+                # Linux: try to reveal/select the file in the file manager.
+                if os.path.isfile(abs_path):
+                    # GNOME / Nautilus via org.freedesktop.FileManager1 DBus
+                    try:
+                        subprocess.Popen([
+                            "dbus-send", "--print-reply",
+                            "--dest=org.freedesktop.FileManager1",
+                            "/org/freedesktop/FileManager1",
+                            "org.freedesktop.FileManager1.ShowItems",
+                            f"array:string:file://{abs_path}",
+                            "string:openpaper",
+                        ])
+                    except FileNotFoundError:
+                        pass
+                    else:
+                        self._send_json(200, {"ok": True, "path": abs_path})
+                        return
+                    # KDE / Dolphin
+                    try:
+                        subprocess.Popen(["dolphin", "--select", abs_path])
+                    except FileNotFoundError:
+                        pass
+                    else:
+                        self._send_json(200, {"ok": True, "path": abs_path})
+                        return
+                # Fallback: open parent directory
                 target = abs_path if os.path.isdir(abs_path) else os.path.dirname(abs_path)
                 subprocess.Popen(["xdg-open", target])
         except Exception as exc:
