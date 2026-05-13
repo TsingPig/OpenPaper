@@ -174,7 +174,10 @@ def main() -> None:
         if not added_at:
             try:
                 stat = os.stat(os.path.join(PDF_DIR, rel_path))
-                ctime = getattr(stat, "st_birthtime", None) or stat.st_ctime
+                try:
+                    ctime = stat.st_birthtime  # macOS
+                except AttributeError:
+                    ctime = stat.st_ctime      # Linux fallback
                 mtime = stat.st_mtime
                 added_at = datetime.fromtimestamp(max(ctime, mtime)).isoformat(timespec="seconds")
             except OSError:
