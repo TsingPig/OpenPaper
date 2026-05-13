@@ -5,6 +5,8 @@ import sys
 import urllib.parse
 from datetime import datetime
 
+from backend.utils import configure_stdio
+
 PDF_DIR = "papers"
 METADATA_FILE = "metadata.json"
 OUTPUT_HTML = "index.html"
@@ -93,17 +95,6 @@ VENUE_PATTERNS = [
     (r"siggraphasia(?:20)?(\d{2})", "SIGGRAPH Asia"),
     (r"tog(?:20)?(\d{2})", "TOG"),
 ]
-
-
-def configure_stdio() -> None:
-    for stream_name in ("stdout", "stderr"):
-        stream = getattr(sys, stream_name, None)
-        if not stream:
-            continue
-        try:
-            stream.reconfigure(encoding="utf-8", errors="replace")
-        except Exception:
-            pass
 
 
 def infer_venue_and_year(filename: str):

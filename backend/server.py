@@ -16,13 +16,9 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-# Keep WORKSPACE_ROOT pinned to the repository root.
-# When this file lives under backend/, one extra dirname() is required.
-_script_dir = os.path.dirname(os.path.abspath(__file__))
-if os.path.basename(_script_dir) == "backend":
-    WORKSPACE_ROOT = os.path.dirname(_script_dir)
-else:
-    WORKSPACE_ROOT = _script_dir
+from backend.utils import configure_stdio, log, resolve_workspace_root, safe_rel
+
+WORKSPACE_ROOT = resolve_workspace_root()
 
 # Paths resolved from the workspace root.
 PDF_DIR = os.path.join(WORKSPACE_ROOT, "papers")
@@ -42,23 +38,6 @@ HTTP_PORT = 8000
 SPEEDREAD_MAX_IMAGE_PAGES = 4
 SPEEDREAD_IMAGE_WIDTH = 1400
 SPEEDREAD_MAX_SOURCE_CHARS = 24000
-
-
-def _configure_stdio() -> None:
-    for stream_name in ("stdout", "stderr"):
-        stream = getattr(sys, stream_name, None)
-        if not stream:
-            continue
-        try:
-            stream.reconfigure(encoding="utf-8", errors="replace")
-        except Exception:
-            pass
-
-
-def _log(msg: str) -> None:
-    """Write a timestamped log line."""
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{ts}] {msg}", flush=True)
 
 
 def _bring_explorer_to_front(target_path: str) -> None:
@@ -136,7 +115,7 @@ class PaperRequestHandler(SimpleHTTPRequestHandler):
             self.handle_open_folder(parse_qs(parsed.query))
             return
         if parsed.path == "/api/log":
-            self.handle_get_log(parse_qs(parsed.query))
+            self.handle_getlog(parse_qs(parsed.query))
             return
         if parsed.path == "/api/recycle-list":
             self.handle_recycle_list()
@@ -186,20 +165,6 @@ class PaperRequestHandler(SimpleHTTPRequestHandler):
         self._send_json(404, {"ok": False, "error": "未知接口"})
 
     # ------- recycle bin -------
-    def _safe_rel(self, rel: str):
-        """Normalize a relative path and keep it inside the workspace."""
-        rel = (rel or "").replace("\\", "/").lstrip("/")
-        if not rel:
-            return None
-        abs_path = os.path.abspath(os.path.join(WORKSPACE_ROOT, rel))
-        try:
-            common = os.path.commonpath([WORKSPACE_ROOT, abs_path])
-        except ValueError:
-            return None
-        if common != WORKSPACE_ROOT:
-            return None
-        return abs_path
-
     def _slugify(self, s: str) -> str:
         s = re.sub(r"[^\w\-.]+", "_", s, flags=re.UNICODE)
         return s[:80] or "item"
@@ -227,7 +192,7 @@ class PaperRequestHandler(SimpleHTTPRequestHandler):
         # Recover the real relative disk path from the encoded pdf path.
         pdf_local = entry.get("pdf_local") or entry.get("pdf") or ""
         rel_disk = unquote(pdf_local)  # e.g. "papers/Embodied AI/foo.pdf"
-        abs_pdf = self._safe_rel(rel_disk)
+        abs_pdf = safe_rel(rel_disk, WORKSPACE_ROOT)
         if not abs_pdf or not os.path.isfile(abs_pdf):
             self._send_json(404, {"ok": False, "error": f"文件不存在: {rel_disk}"})
             return
@@ -261,9 +226,9 @@ class PaperRequestHandler(SimpleHTTPRequestHandler):
             with open(os.path.join(item_dir, "info.json"), "w", encoding="utf-8") as f:
                 json.dump(info, f, ensure_ascii=False, indent=2)
         except Exception as exc:
-            _log(f"写入回收站 info.json 失败: {exc}")
+            log(f"写入回收站 info.json 失败: {exc}")
 
-        _log(f"已移入回收站: {rel_disk} -> {RECYCLE_DIR}/{rid}/")
+        log(f"已移入回收站: {rel_disk} -> {RECYCLE_DIR}/{rid}/")
         self._send_json(200, {"ok": True, "id": rid, "title": info["title"]})
 
     def handle_recycle_list(self):
@@ -318,7 +283,7 @@ class PaperRequestHandler(SimpleHTTPRequestHandler):
             return
 
         rel_disk = info.get("original_rel") or ""
-        target_abs = self._safe_rel(rel_disk)
+        target_abs = safe_rel(rel_disk, WORKSPACE_ROOT)
         if not target_abs:
             self._send_json(400, {"ok": False, "error": "原始路径非法"})
             return
@@ -347,7 +312,7 @@ class PaperRequestHandler(SimpleHTTPRequestHandler):
         try:
             subprocess.run([sys.executable, BUILD_SCRIPT], check=False, cwd=WORKSPACE_ROOT)
         except Exception as exc:
-            _log(f"恢复后执行 build 失败: {exc}")
+            log(f"恢复后执行 build 失败: {exc}")
 
         # Merge saved metadata back in so notes/read/tags survive restore.
         saved_meta = info.get("metadata") or {}
@@ -367,15 +332,15 @@ class PaperRequestHandler(SimpleHTTPRequestHandler):
                 with open(meta_abs, "w", encoding="utf-8") as f:
                     json.dump(meta, f, ensure_ascii=False, indent=2)
             except Exception as exc:
-                _log(f"合并恢复 metadata 失败: {exc}")
+                log(f"合并恢复 metadata 失败: {exc}")
 
         # Remove the recycle item directory after restore.
         try:
             shutil.rmtree(item_dir)
         except Exception as exc:
-            _log(f"清理回收站目录失败: {exc}")
+            log(f"清理回收站目录失败: {exc}")
 
-        _log(f"已恢复: {rel_disk}")
+        log(f"已恢复: {rel_disk}")
         self._send_json(200, {"ok": True, "file_key": file_key})
 
     def handle_recycle_purge(self, payload):
@@ -389,7 +354,7 @@ class PaperRequestHandler(SimpleHTTPRequestHandler):
         except Exception as exc:
             self._send_json(500, {"ok": False, "error": f"删除失败: {exc}"})
             return
-        _log(f"已永久删除回收站项目: {rid}")
+        log(f"已永久删除回收站项目: {rid}")
         self._send_json(200, {"ok": True})
 
     def handle_recycle_purge_all(self):
@@ -403,8 +368,8 @@ class PaperRequestHandler(SimpleHTTPRequestHandler):
                         shutil.rmtree(d)
                         count += 1
                     except Exception as exc:
-                        _log(f"清空回收站失败 {name}: {exc}")
-        _log(f"已清空回收站，共 {count} 项")
+                        log(f"清空回收站失败 {name}: {exc}")
+        log(f"已清空回收站，共 {count} 项")
         self._send_json(200, {"ok": True, "count": count})
 
     # ------- metadata persistence -------
@@ -423,7 +388,7 @@ class PaperRequestHandler(SimpleHTTPRequestHandler):
         try:
             self._atomic_write_metadata(data)
         except Exception as exc:
-            _log(f"保存 metadata 失败: {exc}")
+            log(f"保存 metadata 失败: {exc}")
             self._send_json(500, {"ok": False, "error": f"写入失败: {exc}"})
             return
         self._send_json(200, {"ok": True, "count": len(data)})
@@ -447,7 +412,7 @@ class PaperRequestHandler(SimpleHTTPRequestHandler):
             meta[file_key] = merged
             self._atomic_write_metadata(meta)
         except Exception as exc:
-            _log(f"update-paper 失败: {exc}")
+            log(f"update-paper 失败: {exc}")
             self._send_json(500, {"ok": False, "error": f"更新失败: {exc}"})
             return
         self._send_json(200, {"ok": True, "file_key": file_key})
@@ -495,7 +460,7 @@ class PaperRequestHandler(SimpleHTTPRequestHandler):
             return None, None, None
         pdf_local = entry.get("pdf_local") or entry.get("pdf") or ""
         rel_disk = unquote(pdf_local)
-        abs_pdf = self._safe_rel(rel_disk)
+        abs_pdf = safe_rel(rel_disk, WORKSPACE_ROOT)
         if not abs_pdf or not os.path.isfile(abs_pdf):
             return entry, rel_disk, None
         return entry, rel_disk.replace("\\", "/"), abs_pdf
@@ -706,7 +671,7 @@ class PaperRequestHandler(SimpleHTTPRequestHandler):
         return url + "/v1/chat/completions"
 
     def _image_to_data_url(self, rel_path):
-        abs_path = self._safe_rel(rel_path)
+        abs_path = safe_rel(rel_path, WORKSPACE_ROOT)
         if not abs_path or not os.path.isfile(abs_path):
             return None
         with open(abs_path, "rb") as f:
@@ -945,36 +910,36 @@ class PaperRequestHandler(SimpleHTTPRequestHandler):
                 method="POST",
             )
 
-            _log(f"send speed-read request: model={model}, mode={request_mode}, endpoint={endpoint}, timeout={timeout_sec}s")
+            log(f"send speed-read request: model={model}, mode={request_mode}, endpoint={endpoint}, timeout={timeout_sec}s")
             try:
                 with _no_proxy_opener.open(req, timeout=timeout_sec) as resp:
                     body = resp.read().decode("utf-8", errors="replace")
-                    _log(f"收到模型回复，长度 {len(body)}")
+                    log(f"收到模型回复，长度 {len(body)}")
             except error.HTTPError as exc:
                 detail = exc.read().decode("utf-8", errors="replace") if hasattr(exc, "read") else str(exc)
-                _log(f"HTTP 错误 {exc.code}: {detail[:200]}")
+                log(f"HTTP 错误 {exc.code}: {detail[:200]}")
                 raise RuntimeError(f"模型接口返回 HTTP {exc.code}: {self._clean_page_text(detail, 600)}")
             except error.URLError as exc:
-                _log(f"连接失败: {exc.reason}")
+                log(f"连接失败: {exc.reason}")
                 raise RuntimeError(f"无法连接模型接口: {exc.reason}")
             except Exception as exc:
-                _log(f"请求异常: {exc}")
+                log(f"请求异常: {exc}")
                 raise RuntimeError(f"请求模型接口异常: {exc}")
 
             try:
                 data = json.loads(body)
-                _log("JSON 解析成功")
+                log("JSON 解析成功")
             except json.JSONDecodeError as exc:
-                _log(f"JSON 解析失败: {exc}, 响应长度 {len(body)} 字符")
-                _log(f"   响应片段: {body[:500]}")
+                log(f"JSON 解析失败: {exc}, 响应长度 {len(body)} 字符")
+                log(f"   响应片段: {body[:500]}")
                 raise RuntimeError(f"模型接口返回了无效 JSON，可能是错误或网关问题。详情: {self._clean_page_text(str(exc), 300)}")
 
             content = self._extract_completion_text(data)
             if not content:
-                _log(f"无法从响应中提取文本。响应结构: {json.dumps(data, ensure_ascii=False)[:500]}")
+                log(f"无法从响应中提取文本。响应结构: {json.dumps(data, ensure_ascii=False)[:500]}")
                 raise RuntimeError("模型接口返回成功，但没有生成文本内容")
 
-            _log(f"提取生成文本: {len(content)} 字符")
+            log(f"提取生成文本: {len(content)} 字符")
             return self._extract_json_block(content), request_mode
 
         def should_fallback_to_text_only(message):
@@ -1003,7 +968,7 @@ class PaperRequestHandler(SimpleHTTPRequestHandler):
             except RuntimeError as exc:
                 if not should_fallback_to_text_only(str(exc)):
                     raise
-                _log("当前接口可能不支持图像输入或多模态消息，已自动降级为纯文本速读重试")
+                log("当前接口可能不支持图像输入或多模态消息，已自动降级为纯文本速读重试")
 
         return send_chat_request(prompt, "text-only")
 
@@ -1067,7 +1032,7 @@ class PaperRequestHandler(SimpleHTTPRequestHandler):
                 try:
                     enriched["image_path"] = self._render_speedread_page_image(abs_pdf, file_key, int(item.get("page") or 0))
                 except Exception as img_exc:
-                    _log(f"速读渲染第 {item.get('page')} 页失败: {img_exc}")
+                    log(f"速读渲染第 {item.get('page')} 页失败: {img_exc}")
                     enriched["image_path"] = ""
                 enriched_candidates.append(enriched)
 
@@ -1101,7 +1066,7 @@ class PaperRequestHandler(SimpleHTTPRequestHandler):
             current["speed_read"] = success_state
             metadata[file_key] = current
             self._atomic_write_metadata(metadata)
-            _log(f"速读生成完成: {file_key}")
+            log(f"速读生成完成: {file_key}")
             self._send_json(200, {"ok": True, "speed_read": success_state})
         except Exception as exc:
             error_state = {
@@ -1118,8 +1083,8 @@ class PaperRequestHandler(SimpleHTTPRequestHandler):
                 metadata[file_key] = current
                 self._atomic_write_metadata(metadata)
             except Exception as write_exc:
-                _log(f"写入速读错误状态失败: {write_exc}")
-            _log(f"速读生成失败: {file_key} - {exc}")
+                log(f"写入速读错误状态失败: {write_exc}")
+            log(f"速读生成失败: {file_key} - {exc}")
             self._send_json(500, {"ok": False, "error": self._clean_page_text(str(exc), 600), "speed_read": error_state})
 
     def handle_test_speedread_config(self, payload):
@@ -1150,7 +1115,7 @@ class PaperRequestHandler(SimpleHTTPRequestHandler):
         except Exception as exc:
             self._send_json(500, {"ok": False, "error": self._clean_page_text(str(exc), 600)})
 
-    def handle_get_log(self, query):
+    def handle_getlog(self, query):
         try:
             tail = int((query.get("tail") or ["500"])[0])
         except (TypeError, ValueError):
@@ -1282,7 +1247,7 @@ class PDFHandler(FileSystemEventHandler):
             short = os.path.relpath(path, WORKSPACE_ROOT)
         except ValueError:
             short = path
-        _log(f"PDF {reason}: {short}")
+        log(f"PDF {reason}: {short}")
         with self._lock:
             if self._timer is not None:
                 self._timer.cancel()
@@ -1311,14 +1276,14 @@ class PDFHandler(FileSystemEventHandler):
             self._schedule("移动(旧位置)", event.src_path)
 
     def run_build(self):
-        _log("执行 build.py")
+        log("执行 build.py")
         try:
             subprocess.run([sys.executable, BUILD_SCRIPT], check=False)
         except Exception as exc:
-            _log(f"build 失败: {exc}")
+            log(f"build 失败: {exc}")
 
 if __name__ == "__main__":
-    _configure_stdio()
+    configure_stdio()
     # Serve files from the repository root regardless of launch location.
     os.chdir(WORKSPACE_ROOT)
     
@@ -1357,7 +1322,7 @@ if __name__ == "__main__":
 
     http_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     http_thread.start()
-    _log(f"HTTP 服务已启动: http://127.0.0.1:{port}")
+    log(f"HTTP 服务已启动: http://127.0.0.1:{port}")
 
     os.makedirs(PDF_DIR, exist_ok=True)
 
@@ -1365,7 +1330,7 @@ if __name__ == "__main__":
     observer = Observer()
     observer.schedule(event_handler, PDF_DIR, recursive=True)
     observer.start()
-    _log(f"监控已启动: {PDF_DIR}")
+    log(f"监控已启动: {PDF_DIR}")
 
     try:
         while True:
@@ -1375,7 +1340,7 @@ if __name__ == "__main__":
         observer.join()
         httpd.shutdown()
         httpd.server_close()
-        _log("监控和 HTTP 服务已停止")
+        log("监控和 HTTP 服务已停止")
 
 
 

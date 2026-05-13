@@ -3,19 +3,10 @@ import os
 import sys
 import urllib.parse
 
+from backend.utils import configure_stdio
+
 PDF_DIR = "papers"
 METADATA_FILE = "metadata.json"
-
-
-def configure_stdio() -> None:
-    for stream_name in ("stdout", "stderr"):
-        stream = getattr(sys, stream_name, None)
-        if not stream:
-            continue
-        try:
-            stream.reconfigure(encoding="utf-8", errors="replace")
-        except Exception:
-            pass
 
 
 def main() -> None:
@@ -78,4 +69,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     main()
