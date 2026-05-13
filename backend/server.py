@@ -1316,9 +1316,16 @@ if __name__ == "__main__":
         if getattr(exc, "winerror", None) == 10048 or "Address already in use" in str(exc):
             print("   端口已被占用，可能是之前的 backend/server.py 仍在运行。")
             print("   解决办法:")
-            print("     1) 关闭旧服务，或在 PowerShell 执行:")
-            print(f"        Get-NetTCPConnection -LocalPort {port} | Select OwningProcess")
-            print("        Stop-Process -Id <PID> -Force")
+            if sys.platform == "win32":
+                print("     1) 关闭旧服务: 在 PowerShell 执行:")
+                print(f"        Get-NetTCPConnection -LocalPort {port} | Select OwningProcess")
+                print("        Stop-Process -Id <PID> -Force")
+            elif sys.platform == "darwin":
+                print("     1) 关闭旧服务: 在 Terminal 执行:")
+                print(f"        lsof -ti :{port} | xargs kill")
+            else:
+                print("     1) 关闭旧服务: 在 Terminal 执行:")
+                print(f"        fuser -k {port}/tcp")
             print(f"     2) 或换端口启动: python backend/server.py --port {port + 1}")
         sys.exit(1)
 
