@@ -3,3 +3,8 @@
 __version__ = "1.0.0"
 
 from backend.utils import configure_stdio, log, resolve_workspace_root, safe_rel
+from backend.metadata import (
+    load_metadata, atomic_write_metadata,
+    delete_paper, list_recycle_bin, restore_paper, purge_paper, purge_all_papers,
+    save_metadata, update_paper,
+)

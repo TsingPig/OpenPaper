@@ -17,6 +17,10 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
 from backend.utils import configure_stdio, log, resolve_workspace_root, safe_rel
+from backend.metadata import (
+    delete_paper, list_recycle_bin, restore_paper, purge_paper, purge_all_papers,
+    save_metadata, update_paper, load_metadata, atomic_write_metadata,
+)
 
 WORKSPACE_ROOT = resolve_workspace_root()
 
@@ -165,266 +169,44 @@ class PaperRequestHandler(SimpleHTTPRequestHandler):
         self._send_json(404, {"ok": False, "error": "未知接口"})
 
     # ------- recycle bin -------
-    def _slugify(self, s: str) -> str:
-        s = re.sub(r"[^\w\-.]+", "_", s, flags=re.UNICODE)
-        return s[:80] or "item"
-
     def handle_delete_paper(self, payload):
         file_key = (payload.get("file_key") or "").strip()
-        if not file_key:
-            self._send_json(400, {"ok": False, "error": "缺少 file_key"})
-            return
-
-        # Resolve the original entry from metadata.json.
-        meta_abs = os.path.join(WORKSPACE_ROOT, METADATA_FILE)
-        try:
-            with open(meta_abs, "r", encoding="utf-8") as f:
-                meta = json.load(f)
-        except Exception as exc:
-            self._send_json(500, {"ok": False, "error": f"读取 metadata.json 失败: {exc}"})
-            return
-
-        entry = meta.get(file_key)
-        if not entry:
-            self._send_json(404, {"ok": False, "error": f"metadata 中找不到 {file_key}"})
-            return
-
-        # Recover the real relative disk path from the encoded pdf path.
-        pdf_local = entry.get("pdf_local") or entry.get("pdf") or ""
-        rel_disk = unquote(pdf_local)  # e.g. "papers/Embodied AI/foo.pdf"
-        abs_pdf = safe_rel(rel_disk, WORKSPACE_ROOT)
-        if not abs_pdf or not os.path.isfile(abs_pdf):
-            self._send_json(404, {"ok": False, "error": f"文件不存在: {rel_disk}"})
-            return
-
-        # Move the file into .recycle_bin/<id>/.
-        recycle_root = os.path.join(WORKSPACE_ROOT, RECYCLE_DIR)
-        os.makedirs(recycle_root, exist_ok=True)
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        rid = f"{ts}_{self._slugify(os.path.splitext(os.path.basename(abs_pdf))[0])}"
-        item_dir = os.path.join(recycle_root, rid)
-        os.makedirs(item_dir, exist_ok=True)
-
-        try:
-            dest_pdf = os.path.join(item_dir, os.path.basename(abs_pdf))
-            shutil.move(abs_pdf, dest_pdf)
-        except Exception as exc:
-            try: os.rmdir(item_dir)
-            except Exception: pass
-            self._send_json(500, {"ok": False, "error": f"移动文件失败: {exc}"})
-            return
-
-        info = {
-            "id": rid,
-            "file_key": file_key,
-            "original_rel": rel_disk.replace("\\", "/"),
-            "deleted_at": datetime.now().isoformat(timespec="seconds"),
-            "title": entry.get("title", ""),
-            "metadata": entry,
-        }
-        try:
-            with open(os.path.join(item_dir, "info.json"), "w", encoding="utf-8") as f:
-                json.dump(info, f, ensure_ascii=False, indent=2)
-        except Exception as exc:
-            log(f"写入回收站 info.json 失败: {exc}")
-
-        log(f"已移入回收站: {rel_disk} -> {RECYCLE_DIR}/{rid}/")
-        self._send_json(200, {"ok": True, "id": rid, "title": info["title"]})
+        result = delete_paper(file_key, WORKSPACE_ROOT, METADATA_FILE, RECYCLE_DIR)
+        self._send_json(result.status, result.payload)
 
     def handle_recycle_list(self):
-        recycle_root = os.path.join(WORKSPACE_ROOT, RECYCLE_DIR)
-        items = []
-        if os.path.isdir(recycle_root):
-            for name in sorted(os.listdir(recycle_root), reverse=True):
-                d = os.path.join(recycle_root, name)
-                if not os.path.isdir(d):
-                    continue
-                info_path = os.path.join(d, "info.json")
-                if not os.path.isfile(info_path):
-                    continue
-                try:
-                    with open(info_path, "r", encoding="utf-8") as f:
-                        info = json.load(f)
-                    items.append({
-                        "id": info.get("id", name),
-                        "title": info.get("title", ""),
-                        "original_rel": info.get("original_rel", ""),
-                        "deleted_at": info.get("deleted_at", ""),
-                        "file_key": info.get("file_key", ""),
-                    })
-                except Exception:
-                    continue
-        self._send_json(200, {"ok": True, "items": items})
-
-    def _read_recycle_info(self, rid: str):
-        rid = (rid or "").strip()
-        if not rid or "/" in rid or "\\" in rid or rid in (".", ".."):
-            return None, None
-        item_dir = os.path.join(WORKSPACE_ROOT, RECYCLE_DIR, rid)
-        if not os.path.isdir(item_dir):
-            return None, None
-        info_path = os.path.join(item_dir, "info.json")
-        if not os.path.isfile(info_path):
-            return item_dir, None
-        try:
-            with open(info_path, "r", encoding="utf-8") as f:
-                return item_dir, json.load(f)
-        except Exception:
-            return item_dir, None
+        result = list_recycle_bin(RECYCLE_DIR)
+        self._send_json(result.status, result.payload)
 
     def handle_recycle_restore(self, payload):
         rid = payload.get("id")
-        item_dir, info = self._read_recycle_info(rid)
-        if not item_dir:
-            self._send_json(404, {"ok": False, "error": "回收站项目不存在"})
-            return
-        if not info:
-            self._send_json(500, {"ok": False, "error": "info.json 缺失或损坏"})
-            return
-
-        rel_disk = info.get("original_rel") or ""
-        target_abs = safe_rel(rel_disk, WORKSPACE_ROOT)
-        if not target_abs:
-            self._send_json(400, {"ok": False, "error": "原始路径非法"})
-            return
-        if os.path.exists(target_abs):
-            self._send_json(409, {"ok": False, "error": "目标位置已存在同名文件"})
-            return
-
-        # Find the first PDF inside the recycle item directory.
-        src_pdf = None
-        for name in os.listdir(item_dir):
-            if name.lower().endswith(".pdf"):
-                src_pdf = os.path.join(item_dir, name)
-                break
-        if not src_pdf:
-            self._send_json(500, {"ok": False, "error": "回收站中找不到 PDF 文件"})
-            return
-
-        os.makedirs(os.path.dirname(target_abs), exist_ok=True)
-        try:
-            shutil.move(src_pdf, target_abs)
-        except Exception as exc:
-            self._send_json(500, {"ok": False, "error": f"恢复文件失败: {exc}"})
-            return
-
-        # Rebuild immediately so metadata includes the restored file.
-        try:
-            subprocess.run([sys.executable, BUILD_SCRIPT], check=False, cwd=WORKSPACE_ROOT)
-        except Exception as exc:
-            log(f"恢复后执行 build 失败: {exc}")
-
-        # Merge saved metadata back in so notes/read/tags survive restore.
-        saved_meta = info.get("metadata") or {}
-        file_key = info.get("file_key") or saved_meta.get("file_key")
-        if file_key and saved_meta:
-            meta_abs = os.path.join(WORKSPACE_ROOT, METADATA_FILE)
-            try:
-                with open(meta_abs, "r", encoding="utf-8") as f:
-                    meta = json.load(f)
-                # Restore user fields, but keep build-generated path fields.
-                current = meta.get(file_key) or {}
-                merged = {**current, **saved_meta}
-                # Trust build output for path casing and encoding.
-                if current.get("pdf"): merged["pdf"] = current["pdf"]
-                if current.get("pdf_local"): merged["pdf_local"] = current["pdf_local"]
-                meta[file_key] = merged
-                with open(meta_abs, "w", encoding="utf-8") as f:
-                    json.dump(meta, f, ensure_ascii=False, indent=2)
-            except Exception as exc:
-                log(f"合并恢复 metadata 失败: {exc}")
-
-        # Remove the recycle item directory after restore.
-        try:
-            shutil.rmtree(item_dir)
-        except Exception as exc:
-            log(f"清理回收站目录失败: {exc}")
-
-        log(f"已恢复: {rel_disk}")
-        self._send_json(200, {"ok": True, "file_key": file_key})
+        result = restore_paper(rid, WORKSPACE_ROOT, BUILD_SCRIPT, METADATA_FILE, RECYCLE_DIR)
+        self._send_json(result.status, result.payload)
 
     def handle_recycle_purge(self, payload):
         rid = payload.get("id")
-        item_dir, _ = self._read_recycle_info(rid)
-        if not item_dir:
-            self._send_json(404, {"ok": False, "error": "回收站项目不存在"})
-            return
-        try:
-            shutil.rmtree(item_dir)
-        except Exception as exc:
-            self._send_json(500, {"ok": False, "error": f"删除失败: {exc}"})
-            return
-        log(f"已永久删除回收站项目: {rid}")
-        self._send_json(200, {"ok": True})
+        result = purge_paper(rid, RECYCLE_DIR)
+        self._send_json(result.status, result.payload)
 
     def handle_recycle_purge_all(self):
-        recycle_root = os.path.join(WORKSPACE_ROOT, RECYCLE_DIR)
-        count = 0
-        if os.path.isdir(recycle_root):
-            for name in os.listdir(recycle_root):
-                d = os.path.join(recycle_root, name)
-                if os.path.isdir(d):
-                    try:
-                        shutil.rmtree(d)
-                        count += 1
-                    except Exception as exc:
-                        log(f"清空回收站失败 {name}: {exc}")
-        log(f"已清空回收站，共 {count} 项")
-        self._send_json(200, {"ok": True, "count": count})
+        result = purge_all_papers(RECYCLE_DIR)
+        self._send_json(result.status, result.payload)
 
     # ------- metadata persistence -------
-    def _atomic_write_metadata(self, data):
-        meta_abs = os.path.join(WORKSPACE_ROOT, METADATA_FILE)
-        tmp_abs = meta_abs + ".tmp"
-        with open(tmp_abs, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        os.replace(tmp_abs, meta_abs)
-
     def handle_save_metadata(self, payload):
         data = payload.get("data")
-        if not isinstance(data, dict):
-            self._send_json(400, {"ok": False, "error": "缺少 data 字段或类型不正确"})
-            return
-        try:
-            self._atomic_write_metadata(data)
-        except Exception as exc:
-            log(f"保存 metadata 失败: {exc}")
-            self._send_json(500, {"ok": False, "error": f"写入失败: {exc}"})
-            return
-        self._send_json(200, {"ok": True, "count": len(data)})
+        result = save_metadata(data, METADATA_FILE)
+        self._send_json(result.status, result.payload)
 
     def handle_update_paper(self, payload):
         file_key = (payload.get("file_key") or "").strip()
         fields = payload.get("fields")
-        if not file_key or not isinstance(fields, dict):
-            self._send_json(400, {"ok": False, "error": "缺少 file_key 或 fields"})
-            return
-        meta_abs = os.path.join(WORKSPACE_ROOT, METADATA_FILE)
-        try:
-            if os.path.exists(meta_abs):
-                with open(meta_abs, "r", encoding="utf-8") as f:
-                    meta = json.load(f)
-            else:
-                meta = {}
-            current = meta.get(file_key) or {}
-            merged = {**current, **fields}
-            merged["file_key"] = file_key
-            meta[file_key] = merged
-            self._atomic_write_metadata(meta)
-        except Exception as exc:
-            log(f"update-paper 失败: {exc}")
-            self._send_json(500, {"ok": False, "error": f"更新失败: {exc}"})
-            return
-        self._send_json(200, {"ok": True, "file_key": file_key})
+        result = update_paper(file_key, fields, METADATA_FILE)
+        self._send_json(result.status, result.payload)
 
     # ------- paper speed-read -------
     def _load_metadata_dict(self):
-        meta_abs = os.path.join(WORKSPACE_ROOT, METADATA_FILE)
-        if not os.path.exists(meta_abs):
-            return {}
-        with open(meta_abs, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else {}
+        return load_metadata(METADATA_FILE)
 
     def _clean_page_text(self, text, limit=None):
         cleaned = (text or "").replace("\x00", "")
@@ -1014,7 +796,7 @@ class PaperRequestHandler(SimpleHTTPRequestHandler):
             current = metadata.get(file_key) or {}
             current["speed_read"] = generating_state
             metadata[file_key] = current
-            self._atomic_write_metadata(metadata)
+            atomic_write_metadata(metadata, METADATA_FILE)
         except Exception as exc:
             self._send_json(500, {"ok": False, "error": f"写入生成状态失败: {exc}"})
             return
@@ -1065,7 +847,7 @@ class PaperRequestHandler(SimpleHTTPRequestHandler):
             current = metadata.get(file_key) or {}
             current["speed_read"] = success_state
             metadata[file_key] = current
-            self._atomic_write_metadata(metadata)
+            atomic_write_metadata(metadata, METADATA_FILE)
             log(f"速读生成完成: {file_key}")
             self._send_json(200, {"ok": True, "speed_read": success_state})
         except Exception as exc:
@@ -1081,7 +863,7 @@ class PaperRequestHandler(SimpleHTTPRequestHandler):
                 current = metadata.get(file_key) or {}
                 current["speed_read"] = error_state
                 metadata[file_key] = current
-                self._atomic_write_metadata(metadata)
+                atomic_write_metadata(metadata, METADATA_FILE)
             except Exception as write_exc:
                 log(f"写入速读错误状态失败: {write_exc}")
             log(f"速读生成失败: {file_key} - {exc}")
