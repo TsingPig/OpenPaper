@@ -48,10 +48,10 @@ cd OpenPaper
 ### 第二步：安装依赖
 
 ```bash
-pip install watchdog
+uv sync
 ```
 
-> **最低要求**：Python 3.8+，无其他强依赖。
+> **最低要求**：Python 3.8+。如果你不使用 uv，也可以手动 `pip install watchdog`。
 
 ### 第三步：放入论文
 
