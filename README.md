@@ -48,10 +48,10 @@ cd OpenPaper
 ### 第二步：安装依赖
 
 ```bash
-pip install watchdog
+uv sync
 ```
 
-> **最低要求**：Python 3.8+，无其他强依赖。
+> **最低要求**：Python 3.8+。如果你不使用 uv，也可以手动 `pip install watchdog`。
 
 ### 第三步：放入论文
 
@@ -71,8 +71,10 @@ papers/
 ### 第四步：启动服务
 
 ```bash
-python backend/server.py
+python -m backend
 ```
+
+> 兼容旧用法：`python backend/server.py` 或 `uv run openpaper`。
 
 服务启动后会自动构建 `index.html`，并在后台监控 `papers/` 目录的变化。
 
@@ -142,7 +144,9 @@ some-paper-ase2023.pdf              → ASE 2023
 
 ## 🔄 开机自启（可选）
 
-在 Windows 上注册任务计划，登录后自动后台启动服务：
+### Windows
+
+注册任务计划，登录后自动后台启动服务：
 
 ```powershell
 # 以普通用户权限运行（不需要管理员）
@@ -155,6 +159,16 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install_autostart.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\uninstall_autostart.ps1
 ```
 
+### macOS / Linux
+
+```bash
+# 安装自启（macOS: launchd, Linux: systemd user service）
+bash scripts/install_autostart.sh
+
+# 卸载自启
+bash scripts/uninstall_autostart.sh
+```
+
 注册成功后日志输出到 `waatchdog.log`，方便排查问题。
 
 ---
@@ -164,23 +178,37 @@ powershell -ExecutionPolicy Bypass -File .\scripts\uninstall_autostart.ps1
 ```
 OpenPaper/
 |-- backend/
-|   |-- server.py  # main service entry
-|-- build.py
-|-- metadata.json
-|-- frontend/
-|   |-- index.html
-|   |-- template.html
-|   `-- stats.html
+|   |-- __init__.py       # package declaration
+|   |-- __main__.py       # python -m backend entry point
+|   |-- server.py         # HTTP server + request routing
+|   |-- utils.py          # shared utilities (log, paths, stdio)
+|   |-- metadata.py       # metadata I/O + recycle bin
+|   |-- speedread.py      # AI speed-read pipeline
+|   `-- watcher.py        # file system watcher
+|-- build.py              # build frontend from template
+|-- template.html         # frontend SPA template
+|-- index.html            # generated frontend page
+|-- stats.html            # statistics dashboard
 |-- scripts/
 |   |-- fix_metadata.py
-|   |-- install_autostart.ps1
+|   |-- install_autostart.ps1 / .sh
+|   |-- uninstall_autostart.ps1 / .sh
 |   |-- start_server.vbs
-|   `-- uninstall_autostart.ps1
+|   `-- start_waatchdog.vbs
 |-- papers/
 |   |-- demo/
 |   `-- ...
 `-- .gitignore
 ```
+
+### 启动方式
+
+| 命令 | 说明 |
+|---|---|
+| `python -m backend` | 推荐的新入口，Python 包模式启动 |
+| `python backend/server.py` | 兼容旧用法，直接运行脚本 |
+| `uv run openpaper` | 通过 uv 的 CLI 入口启动 |
+| `uv run python -m backend --port 8080` | 自定义端口 |
 
 ---
 
