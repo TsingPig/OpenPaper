@@ -5,8 +5,6 @@ import sys
 import urllib.parse
 from datetime import datetime
 
-from backend.utils import configure_stdio
-
 PDF_DIR = "papers"
 METADATA_FILE = "metadata.json"
 OUTPUT_HTML = "index.html"
@@ -97,6 +95,17 @@ VENUE_PATTERNS = [
 ]
 
 
+def configure_stdio() -> None:
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if not stream:
+            continue
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
 def infer_venue_and_year(filename: str):
     filename_lower = filename.lower()
 
@@ -165,10 +174,7 @@ def main() -> None:
         if not added_at:
             try:
                 stat = os.stat(os.path.join(PDF_DIR, rel_path))
-                try:
-                    ctime = stat.st_birthtime  # macOS
-                except AttributeError:
-                    ctime = stat.st_ctime      # Linux fallback
+                ctime = getattr(stat, "st_birthtime", None) or stat.st_ctime
                 mtime = stat.st_mtime
                 added_at = datetime.fromtimestamp(max(ctime, mtime)).isoformat(timespec="seconds")
             except OSError:
